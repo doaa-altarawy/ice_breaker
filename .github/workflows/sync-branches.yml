@@ -52,8 +52,8 @@ jobs:
               echo "Branch $branch exists locally, checking out and updating..."
               git checkout "$branch"
               git merge --ff-only "upstream/$branch" || {
-                echo "Fast-forward merge failed for $branch, attempting regular merge..."
-                git merge "upstream/$branch" -m "Merge upstream changes for $branch"
+                echo "Fast-forward merge failed for $branch, resetting to match upstream exactly..."
+                git reset --hard "upstream/$branch"
               }
             else
               echo "Branch $branch does not exist locally, creating from upstream..."
@@ -63,7 +63,11 @@ jobs:
             # Push to origin
             echo "Pushing $branch to origin..."
             git push origin "$branch" --force-with-lease || {
-              echo "Failed to push $branch"
+              echo "ERROR: Failed to push $branch to origin. This could be due to:"
+              echo "  - Force-with-lease protection (someone else pushed to this branch)"
+              echo "  - Permission issues with GITHUB_TOKEN"
+              echo "  - Network connectivity problems"
+              echo "Continuing with next branch..."
             }
           done
           
@@ -71,7 +75,10 @@ jobs:
 
       - name: Return to original branch
         run: |
-          git checkout main || git checkout -b main origin/main || echo "Could not return to main branch"
+          git checkout main || git checkout -b main origin/main || {
+            echo "WARNING: Could not return to main branch. This may affect future workflow runs."
+            exit 0
+          }
 
       - name: Summary
         run: |
