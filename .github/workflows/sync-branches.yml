@@ -1,0 +1,80 @@
+name: Sync All Branches from Upstream
+
+on:
+  # Run on manual trigger
+  workflow_dispatch:
+  # Run on a schedule (once per day at midnight UTC)
+  schedule:
+    - cron: '0 0 * * *'
+  # Run when changes are pushed to main
+  push:
+    branches:
+      - main
+
+jobs:
+  sync-branches:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/emarco177/ice_breaker.git || true
+          git remote -v
+
+      - name: Fetch all branches from upstream
+        run: |
+          git fetch upstream --prune
+
+      - name: Sync branches from upstream
+        run: |
+          # Get all upstream branches except HEAD
+          upstream_branches=$(git branch -r | grep 'upstream/' | grep -v 'HEAD' | sed 's|upstream/||')
+          
+          echo "Found upstream branches:"
+          echo "$upstream_branches"
+          
+          # Sync each branch
+          for branch in $upstream_branches; do
+            echo "=== Processing branch: $branch ==="
+            
+            # Check if branch exists locally
+            if git show-ref --verify --quiet "refs/heads/$branch"; then
+              echo "Branch $branch exists locally, checking out and updating..."
+              git checkout "$branch"
+              git merge --ff-only "upstream/$branch" || {
+                echo "Fast-forward merge failed for $branch, attempting regular merge..."
+                git merge "upstream/$branch" -m "Merge upstream changes for $branch"
+              }
+            else
+              echo "Branch $branch does not exist locally, creating from upstream..."
+              git checkout -b "$branch" "upstream/$branch"
+            fi
+            
+            # Push to origin
+            echo "Pushing $branch to origin..."
+            git push origin "$branch" --force-with-lease || {
+              echo "Failed to push $branch"
+            }
+          done
+          
+          echo "=== Branch sync complete ==="
+
+      - name: Return to original branch
+        run: |
+          git checkout main || git checkout -b main origin/main || echo "Could not return to main branch"
+
+      - name: Summary
+        run: |
+          echo "=== Sync Summary ==="
+          echo "All upstream branches have been synced to origin"
+          git branch -a | grep -E "(origin|upstream)" | sort
